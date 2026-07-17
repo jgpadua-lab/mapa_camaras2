@@ -43,10 +43,24 @@ def carregar_dados():
     df['Estante'] = df['Estante'].astype(int)
     df['Caixa'] = df['Caixa'].astype(int)
 
-    # 🎯 MODIFICAÇÃO: Calcula a quantidade de amostras contando as repetições de cada endereço
-    df['Amostras'] = df.groupby('Endereço')['Endereço'].transform('count')
+    if 'Gênero' in df.columns:
+        df['Gênero'] = df['Gênero'].astype(str).str.strip()
 
-    # Remove duplicadas de endereço para que o gráfico plote apenas um ponto por caixa
+    # 🎯 MODIFICAÇÃO CIRÚRGICA: Lógica para mapear Caixas Mistas e listar os gêneros contidos
+    # 1. Conta a quantidade de amostras total por caixa
+    df['Amostras'] = df.groupby('Endereço')['Endereço'].transform('count')
+    
+    # 2. Agrupa e cria uma string combinando todos os gêneros únicos de cada caixa
+    generos_por_endereco = df.groupby('Endereço')['Gênero'].transform(lambda x: ", ".join(sorted(x.unique())))
+    
+    # 3. Se houver mais de um gênero único no mesmo endereço, classifica como Misto
+    df['Gênero_Original'] = df['Gênero'] # Salva o original para os filtros laterais funcionarem
+    df['Gênero'] = df.groupby('Endereço')['Gênero'].transform(lambda x: "Misto (Vários Gêneros)" if x.nunique() > 1 else x)
+    
+    # 4. Guarda a lista detalhada de gêneros para exibir no hover do mouse
+    df['Gêneros Contidos'] = generos_por_endereco
+
+    # Remove duplicadas de endereço garantindo consistência para a plotagem do mapa único
     df = df.drop_duplicates(subset=['Endereço'])
 
     return df
@@ -59,44 +73,44 @@ df_dados = carregar_dados()
 # ----------------------------------------------------
 st.sidebar.header("📍 Filtros de Busca")
 
-# Cria a lista de gêneros disponíveis (removendo vazios e ordenando)
-generos_disponiveis = df_dados['Gênero'].dropna().unique().tolist()
+# Cria a lista de gêneros disponíveis usando a coluna original (para manter os nomes reais na busca)
+generos_disponiveis = df_dados['Gênero_Original'].dropna().unique().tolist()
+if "Misto (Vários Gêneros)" in df_dados['Gênero'].unique():
+    generos_disponiveis.append("Misto (Vários Gêneros)")
 generos_disponiveis.sort()
-generos_disponiveis.insert(0, "Todos os Gêneros")  # Adiciona opção para ver tudo
+generos_disponiveis.insert(0, "Todos os Gêneros")
 
 # Filtro 1: Escolha do Gênero
 genero_selecionado = st.sidebar.selectbox("1️⃣ Escolha o Gênero (Prioridade)", generos_disponiveis)
 
 # Lógica inteligente para o Filtro 2: Câmara
 if genero_selecionado != "Todos os Gêneros":
-    # Isola apenas as linhas do gênero escolhido
-    df_gen_isolado = df_dados[df_dados['Gênero'] == genero_selecionado]
-    # Descobre em quais câmaras ele está presente
+    # Isola as linhas usando o gênero original ou a marcação de Misto
+    if genero_selecionado == "Misto (Vários Gêneros)":
+        df_gen_isolado = df_dados[df_dados['Gênero'] == "Misto (Vários Gêneros)"]
+    else:
+        df_gen_isolado = df_dados[df_dados['Gênero_Original'] == genero_selecionado]
+        
     camaras_com_genero = sorted(df_gen_isolado['Câmara'].unique())
 
-    # Exibe resumo na tela principal
     st.success(
-        f"🔎 O gênero **{genero_selecionado}** está presente em **{len(camaras_com_genero)} câmara(s)**: {', '.join(camaras_com_genero)}")
+        f"🔎 O grupo/gênero **{genero_selecionado}** está presente em **{len(camaras_com_genero)} câmara(s)**: {', '.join(camaras_com_genero)}")
 
     with st.expander("Ver lista exata de localizações (Endereços)"):
-        # Mostra a tabela formatada e limpa
-        tabela_enderecos = df_gen_isolado[['Endereço', 'Câmara', 'Estante', 'Caixa']].sort_values(
+        tabela_enderecos = df_gen_isolado[['Endereço', 'Câmara', 'Estante', 'Caixa', 'Gêneros Contidos']].sort_values(
             by=['Câmara', 'Estante', 'Caixa'])
         st.dataframe(tabela_enderecos, use_container_width=True, hide_index=True)
 else:
-    # Se "Todos os Gêneros" for selecionado, mostra todas as câmaras
     camaras_com_genero = sorted(df_dados['Câmara'].unique())
     st.markdown("Navegue pela visualização completa da câmara selecionada.")
 
-# Se por acaso um gênero estiver cadastrado mas sem câmara válida
 if not camaras_com_genero:
     st.warning("Nenhuma câmara encontrada com este gênero.")
     st.stop()
 
-# Filtro 2: Escolha da Câmara (As opções dependem do Gênero escolhido)
+# Filtro 2: Escolha da Câmara
 camara_selecionada = st.sidebar.selectbox("2️⃣ Escolha a Câmara", camaras_com_genero)
 
-# Filtramos os dados finais que vão para o gráfico baseado apenas na câmara escolhida
 df_filtrado = df_dados[df_dados['Câmara'] == camara_selecionada]
 
 # ----------------------------------------------------
@@ -106,11 +120,10 @@ max_estantes = max(79, df_filtrado['Estante'].max() if not df_filtrado.empty els
 combinacoes = list(itertools.product(range(1, max_estantes + 1), range(1, 36)))
 df_grid = pd.DataFrame(combinacoes, columns=['Estante', 'Caixa'])
 
-# 🎯 MODIFICAÇÃO: Trazendo a coluna 'Amostras' para o cruzamento de dados (merge)
-df_plot = pd.merge(df_grid, df_filtrado[['Estante', 'Caixa', 'Gênero', 'Amostras']], on=['Estante', 'Caixa'], how='left')
+# Trazendo as novas colunas estruturadas para o cruzamento de dados (merge)
+df_plot = pd.merge(df_grid, df_filtrado[['Estante', 'Caixa', 'Gênero', 'Amostras', 'Gêneros Contidos']], on=['Estante', 'Caixa'], how='left')
 df_plot['Gênero'] = df_plot['Gênero'].fillna('Vazio (Livre)')
-
-# Se a caixa estiver livre, define a quantidade de amostras como 0
+df_plot['Gêneros Contidos'] = df_plot['Gêneros Contidos'].fillna('Nenhum (Livre)')
 df_plot['Amostras'] = df_plot['Amostras'].fillna(0).astype(int)
 
 df_plot['Posição (Y)'] = 36 - df_plot['Caixa']
@@ -121,24 +134,24 @@ df_plot['Endereço Completo'] = f"{camara_selecionada}[" + df_plot['Estante'].ap
 # 5. LÓGICA DE CORES (O "EFEITO HOLOFOTE")
 # ----------------------------------------------------
 if genero_selecionado != "Todos os Gêneros":
-    # Se ele buscou um gênero, vamos destacar ele no mapa!
     def classificar_destaque(g):
         if g == 'Vazio (Livre)': return g
-        if g == genero_selecionado: return '🎯 ' + g  # Coloca um emoji para destacar na legenda
+        if g == genero_selecionado: return '🎯 ' + g
         return 'Outros Gêneros'
-
 
     df_plot['Destaque'] = df_plot['Gênero'].apply(classificar_destaque)
     coluna_cor = 'Destaque'
     mapa_de_cores = {
-        'Vazio (Livre)': '#f0f0f0',  # Cinza bem claro (fundo)
-        'Outros Gêneros': '#c0c0c0',  # Cinza médio (ocupado, mas não é o que buscou)
-        f'🎯 {genero_selecionado}': '#ff4b4b'  # Vermelho brilhante (O gênero buscado)
+        'Vazio (Livre)': '#f0f0f0',
+        'Outros Gêneros': '#c0c0c0',
+        f'🎯 {genero_selecionado}': '#ff4b4b'
     }
 else:
-    # Se estiver vendo tudo, colore tudo normalmente
     coluna_cor = 'Gênero'
     mapa_de_cores = {'Vazio (Livre)': '#e8e8e8'}
+    # 🎯 Se houver caixas mistas na visão geral, garante uma cor de destaque para elas (ex: roxo escuro)
+    if "Misto (Vários Gêneros)" in df_plot['Gênero'].unique():
+        mapa_de_cores["Misto (Vários Gêneros)"] = "#8e44ad"
 
 # ----------------------------------------------------
 # 6. DESENHANDO O GRÁFICO PANORÂMICO
@@ -150,9 +163,17 @@ fig = px.scatter(
     x="Estante",
     y="Posição (Y)",
     color=coluna_cor,
-    hover_name="Gênero",  # Ao passar o mouse, sempre mostra o nome verdadeiro do gênero!
-    # 🎯 MODIFICAÇÃO: Incluída a linha '"Amostras": True' para mostrar a contagem gerada no balão
-    hover_data={"Estante": False, "Posição (Y)": False, "Endereço Completo": True, "Amostras": True, "Caixa": False, coluna_cor: False},
+    hover_name="Gênero",  
+    # 🎯 ADICIONADO NO HOVER: Mostra a lista exata dos 'Gêneros Contidos' dentro daquela caixa mista
+    hover_data={
+        "Estante": False, 
+        "Posição (Y)": False, 
+        "Endereço Completo": True, 
+        "Amostras": True, 
+        "Gêneros Contidos": True, 
+        "Caixa": False, 
+        coluna_cor: False
+    },
     color_discrete_map=mapa_de_cores,
     height=750
 )
