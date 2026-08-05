@@ -97,7 +97,7 @@ if genero_selecionado != "Todos os Gêneros":
         f"🔎 O grupo/gênero **{genero_selecionado}** está presente em **{len(camaras_com_genero)} câmara(s)**: {', '.join(camaras_com_genero)}")
 
     with st.expander("Ver lista exata de localizações (Endereços)"):
-        tabela_enderecos = df_gen_isolado[['Endereço', 'Câmara', 'Estante', 'Caixa', 'Gêneros Contidos']].sort_values(
+        tabela_enderecos = df_gen_isolado[['Endereço', 'Câmara', 'Estante', 'Caixa', 'Amostras', 'Gêneros Contidos']].sort_values(
             by=['Câmara', 'Estante', 'Caixa'])
         st.dataframe(tabela_enderecos, use_container_width=True, hide_index=True)
 else:
