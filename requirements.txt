@@ -1,5 +1,6 @@
+streamlit>=1.35.0
+starlette<0.38.0
 pandas
 plotly
-streamlit
-openpyxl
 requests
+openpyxl
