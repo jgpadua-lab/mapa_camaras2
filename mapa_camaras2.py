@@ -81,7 +81,7 @@ generos_disponiveis.sort()
 generos_disponiveis.insert(0, "Todos os Gêneros")
 
 # Filtro 1: Escolha do Gênero
-genero_selecionado = st.sidebar.selectbox("1️⃣ Escolha o Gênero (Prioridade)", generos_disponiveis)
+genero_selecionado = st.sidebar.selectbox("1️⃣ Escolha o Gênero", generos_disponiveis)
 
 # Lógica inteligente para o Filtro 2: Câmara
 if genero_selecionado != "Todos os Gêneros":
